@@ -36,29 +36,6 @@ def load_data():
 embeddings, labels, description = load_data()
 
 # -----------------------------------
-# CLIP (chargé uniquement à la demande)
-# -----------------------------------
-@st.cache_resource
-def load_clip():
-    import torch
-    from transformers import CLIPModel, CLIPProcessor
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
-    processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-    return model, processor, device
-
-# -----------------------------------
-# CLASSIFIEUR RF (caché correctement)
-# -----------------------------------
-@st.cache_resource
-def load_classifier(embeddings, labels_or_categories):
-    le = LabelEncoder()
-    y_encoded = le.fit_transform(labels_or_categories)
-    clf = RandomForestClassifier(n_estimators=200, random_state=42)
-    clf.fit(embeddings, y_encoded)
-    return clf, le
-
-# -----------------------------------
 # FONCTIONS UTILES
 # -----------------------------------
 def cv2_read_rgb(path):
@@ -357,6 +334,29 @@ with tab_eda:
 # ---------------------------
 # Page 2 : Prédiction CLIP
 # ---------------------------
+# -----------------------------------
+# CLIP (chargé uniquement à la demande)
+# -----------------------------------
+@st.cache_resource
+def load_clip():
+    import torch
+    from transformers import CLIPModel, CLIPProcessor
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
+    processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+    return model, processor, device
+
+# -----------------------------------
+# CLASSIFIEUR RF (caché correctement)
+# -----------------------------------
+@st.cache_resource
+def load_classifier(embeddings, labels_or_categories):
+    le = LabelEncoder()
+    y_encoded = le.fit_transform(labels_or_categories)
+    clf = RandomForestClassifier(n_estimators=200, random_state=42)
+    clf.fit(embeddings, y_encoded)
+    return clf, le
+
 with tab_search:
 
     st.title("🔎 Recherche et Prédiction d’Images avec CLIP")

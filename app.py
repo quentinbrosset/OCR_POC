@@ -1,13 +1,11 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import torch
 import os
 import cv2
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
-from transformers import CLIPModel, CLIPProcessor
 import plotly.express as px
 import plotly.graph_objects as go
 from collections import Counter
@@ -27,66 +25,66 @@ DESCRIPTION_PATH = "./produits_clip.csv"
 # -----------------------------------
 # CHARGEMENT DES DONNÉES
 # -----------------------------------
-embeddings = np.load(EMB_PATH)
-labels = np.load(LABELS_PATH)
+@st.cache_resource
+def load_data():
+    embeddings = np.load(EMB_PATH)
+    labels = np.load(LABELS_PATH)
+    description = pd.read_csv(DESCRIPTION_PATH)
+    embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+    return embeddings, labels, description
 
-description = pd.read_csv(DESCRIPTION_PATH)
-
-# Normalisation (au cas où)
-embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+embeddings, labels, description = load_data()
 
 # -----------------------------------
-# CHARGEMENT DU MODÈLE CLIP (HUGGINGFACE)
+# CLIP (chargé uniquement à la demande)
 # -----------------------------------
-device = "cuda" if torch.cuda.is_available() else "cpu"
+@st.cache_resource
+def load_clip():
+    import torch
+    from transformers import CLIPModel, CLIPProcessor
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
+    processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+    return model, processor, device
 
-model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
-processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+# -----------------------------------
+# CLASSIFIEUR RF (caché correctement)
+# -----------------------------------
+@st.cache_resource
+def load_classifier(embeddings, labels_or_categories):
+    le = LabelEncoder()
+    y_encoded = le.fit_transform(labels_or_categories)
+    clf = RandomForestClassifier(n_estimators=200, random_state=42)
+    clf.fit(embeddings, y_encoded)
+    return clf, le
 
 # -----------------------------------
 # FONCTIONS UTILES
 # -----------------------------------
-
 def cv2_read_rgb(path):
-    """Lit une image OpenCV et convertit en RGB (np array)."""
     img = cv2.imread(path)
-    if img is None:
-        return None
+    if img is None: return None
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
 def preprocess_uploaded_file(file):
-    """Lit un fichier uploadé via cv2 + conversion BGR->RGB."""
     file_bytes = np.frombuffer(file.read(), np.uint8)
     img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-def encode_image_clip(image_rgb):
-    """Encode une image RGB OpenCV avec HuggingFace CLIP."""
+def encode_image_clip(image_rgb, model, processor, device):
+    import torch  # <-- IMPORTANT, sinon torch est importé globalement
     dummy_text = [""]
-    inputs = processor(
-        text=dummy_text,
-        images=[image_rgb],
-        return_tensors="pt",
-        padding=True
-    ).to(device)
-
+    inputs = processor(text=dummy_text, images=[image_rgb], return_tensors="pt", padding=True).to(device)
     with torch.no_grad():
         outputs = model(**inputs)
-
-    img_emb = (
-        outputs.image_embeds if hasattr(outputs, "image_embeds")
-        else outputs.image_features
-    ).cpu().numpy()
-
+    img_emb = outputs.image_embeds.cpu().numpy()
     img_emb /= np.linalg.norm(img_emb, axis=-1, keepdims=True)
-    return img_emb[0]  # shape (512,)
+    return img_emb[0]
 
 # -----------------------------------
-# PAGES
+# UI
 # -----------------------------------
 st.set_page_config(page_title="POC modèle CLIP", layout="wide")
-
-# Navigation via onglets (tabs) plutôt que sidebar
 tabs = st.tabs(["Analyse exploratoire", "Prédiction CLIP"])
 tab_eda, tab_search = tabs
 
@@ -360,75 +358,47 @@ with tab_eda:
 # Page 2 : Prédiction CLIP
 # ---------------------------
 with tab_search:
-    st.title("🔎 Recherche et Prédiction d’Images avec CLIP")
-    st.markdown("Après avoir sélectionné une image du dataset, le modèle CLIP va prédire la catégorie du produit en se basant sur l'image et la description du produit.")
-    st.markdown("---")
-    st.subheader("🤖 Prédiction CLIP en direct")
 
-    # Sélection d'une image depuis le dataset (filtrée par la catégorie choisie dans la sidebar)
+    st.title("🔎 Recherche et Prédiction d’Images avec CLIP")
+    st.markdown("Testez le modèle CLIP en choisissant une image du dataset.")
+
     try:
         current_category = selected
     except NameError:
         current_category = "Toutes les catégories"
 
-    if current_category == "Toutes les catégories":
-        dataset_df = description.copy()
-    else:
-        dataset_df = description[description['category'] == current_category].copy()
-
+    dataset_df = description if current_category == "Toutes les catégories" else description[description["category"] == current_category]
     dataset_images = dataset_df.get('image', pd.Series([])).fillna('').astype(str).tolist()
-    dataset_options = [""] + dataset_images
-    selected_dataset_image = st.selectbox("Choisir une image du dataset", dataset_options, index=0)
+
+    selected_dataset_image = st.selectbox("Choisir une image du dataset", [""] + dataset_images)
 
     if selected_dataset_image:
+
         sel_path = os.path.join(IMG_DIR, selected_dataset_image)
         sel_img = cv2_read_rgb(sel_path)
 
-        # Try to find index in description
+        # Index dans le CSV
         matches = description.index[description['image'].fillna('').astype(str) == selected_dataset_image].tolist()
-        idx = matches[0] if len(matches) > 0 else None
+        idx = matches[0] if matches else None
 
         if sel_img is not None:
             st.image(sel_img, caption=selected_dataset_image, width=300)
-            # Afficher la vraie catégorie / sous-catégorie associée si disponible
-            if idx is not None:
-                true_cat = description.at[idx, 'category'] if 'category' in description.columns else None
-                true_sub = description.at[idx, 'subcategory'] if 'subcategory' in description.columns else None
-                info_text = ""
-                if true_cat is not None:
-                    info_text += f"Vraie catégorie : {true_cat}"
-                if info_text:
-                    st.info(info_text)
 
-            # Train or load classifier into session_state
-            if 'clf' not in st.session_state or 'le' not in st.session_state:
-                with st.spinner('Entraînement du classifieur...'):
-                    le = LabelEncoder()
-                    # use labels loaded from clip_labels.npy if it matches description, otherwise use description['category']
-                    try:
-                        y = labels
-                        if len(y) != len(embeddings):
-                            y = description['category'].fillna('N/A').astype(str).values
-                    except Exception:
-                        y = description['category'].fillna('N/A').astype(str).values
+            # Chargement CLIP uniquement maintenant
+            model, processor, device = load_clip()
 
-                    y_encoded = le.fit_transform(y)
-                    clf = RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1)
-                    clf.fit(embeddings, y_encoded)
-                    st.session_state['clf'] = clf
-                    st.session_state['le'] = le
-            else:
-                clf = st.session_state['clf']
-                le = st.session_state['le']
+            # Chargement classifieur
+            clf, le = load_classifier(embeddings, labels)
 
             if st.button("Prédire la catégorie"):
                 if idx is None:
-                    st.warning('Impossible de trouver l’entrée correspondante dans le CSV `produits_clip.csv`.')
+                    st.warning("Impossible de retrouver l’entrée dans produits_clip.csv.")
                 else:
                     emb_vec = embeddings[idx].reshape(1, -1)
                     pred_enc = clf.predict(emb_vec)[0]
                     proba = clf.predict_proba(emb_vec).max()
                     pred_label = le.inverse_transform([pred_enc])[0]
                     st.success(f"🎯 Prédiction : {pred_label} — Confiance : {proba:.2%}")
+
         else:
-            st.warning('Image sélectionnée introuvable dans IMG_DIR.')
+            st.warning("Image introuvable dans IMG_DIR.")

@@ -340,7 +340,7 @@ with tab_eda:
 import requests
 
 # URL de l'API d'inférence Hugging Face pour CLIP
-API_URL = "https://api-inference.huggingface.co/models/laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
+API_URL = "https://router.huggingface.co/models/laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
 
 def query_clip_api(image_bytes):
     """

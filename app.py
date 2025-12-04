@@ -342,7 +342,7 @@ def load_clip():
     import torch
     from transformers import CLIPModel, CLIPProcessor
 
-    MODEL_DIR = "models/clip-vit-base-patch32"
+    MODEL_DIR = "models/laion-clip"
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     model = CLIPModel.from_pretrained(

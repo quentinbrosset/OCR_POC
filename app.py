@@ -383,9 +383,20 @@ with tab_search:
 
         if sel_img is not None:
             st.image(sel_img, caption=selected_dataset_image, width=300)
+            # Afficher la vraie catégorie / sous-catégorie associée si disponible
+            if idx is not None:
+                true_cat = description.at[idx, 'category'] if 'category' in description.columns else None
+                true_sub = description.at[idx, 'subcategory'] if 'subcategory' in description.columns else None
+                info_text = ""
+                if true_cat is not None:
+                    info_text += f"Vraie catégorie : {true_cat}"
+                if info_text:
+                    st.info(info_text)
 
             # Chargement CLIP uniquement maintenant
             model, processor, device = load_clip()
+
+            
 
             # Chargement classifieur
             clf, le = load_classifier(embeddings, labels)

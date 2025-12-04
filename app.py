@@ -341,13 +341,20 @@ with tab_eda:
 def load_clip():
     import torch
     from transformers import CLIPModel, CLIPProcessor
-    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     MODEL_DIR = "models/clip-vit-base-patch32"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    model = CLIPModel.from_pretrained(MODEL_DIR).to(device)
-    processor = CLIPProcessor.from_pretrained(MODEL_DIR)
-    
+    model = CLIPModel.from_pretrained(
+        MODEL_DIR,
+        local_files_only=True   # ← indispensable sur Streamlit Cloud !
+    ).to(device)
+
+    processor = CLIPProcessor.from_pretrained(
+        MODEL_DIR,
+        local_files_only=True
+    )
+
     return model, processor, device
 
 # -----------------------------------

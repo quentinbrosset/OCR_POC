@@ -335,33 +335,6 @@ with tab_eda:
 # Page 2 : Prédiction CLIP
 # ---------------------------
 # -----------------------------------
-# CLIP (API Hugging Face)
-# -----------------------------------
-import requests
-
-# URL de l'API d'inférence Hugging Face pour CLIP
-API_URL = "https://router.huggingface.co/models/laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
-
-def query_clip_api(image_bytes):
-    """
-    Envoie l'image à l'API Hugging Face pour obtenir l'embedding.
-    """
-    # Récupérer le token depuis les secrets Streamlit
-    if "HF_API_TOKEN" in st.secrets:
-        headers = {"Authorization": f"Bearer {st.secrets['HF_API_TOKEN']}"}
-    else:
-        st.error("⚠️ Le token API Hugging Face est manquant. Ajoutez `HF_API_TOKEN` dans `.streamlit/secrets.toml` ou les secrets du Cloud.")
-        return None
-
-    try:
-        response = requests.post(API_URL, headers=headers, data=image_bytes)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        st.error(f"Erreur lors de l'appel API : {e}")
-        return None
-
-# -----------------------------------
 # CLASSIFIEUR RF (caché correctement)
 # -----------------------------------
 @st.cache_resource
@@ -376,7 +349,7 @@ with tab_search:
 
     st.title("🔎 Recherche et Prédiction d’Images avec CLIP")
     st.markdown("Testez le modèle CLIP en choisissant une image du dataset.")
-
+    
     try:
         current_category = selected
     except NameError:
@@ -411,38 +384,19 @@ with tab_search:
             clf, le = load_classifier(embeddings, labels)
 
             if st.button("Prédire la catégorie"):
-                # Lire l'image en binaire pour l'API
-                with open(sel_path, "rb") as f:
-                    image_bytes = f.read()
-                
-                with st.spinner("Interrogation de l'API Hugging Face..."):
-                    api_response = query_clip_api(image_bytes)
-                
-                if api_response is not None:
-                    # L'API feature-extraction renvoie généralement une liste (l'embedding)
-                    if isinstance(api_response, list) and len(api_response) > 0:
-                        emb_vec = np.array(api_response)
-                        
-                        # Si c'est une liste de listes (batch), on prend le premier
-                        if emb_vec.ndim > 1:
-                            emb_vec = emb_vec[0]
-                            
-                        emb_vec = emb_vec.reshape(1, -1)
-                        
-                        # Normalisation (important pour CLIP)
-                        emb_vec = emb_vec / np.linalg.norm(emb_vec, axis=1, keepdims=True)
-
-                        # Prédiction RF
-                        try:
-                            pred_enc = clf.predict(emb_vec)[0]
-                            proba = clf.predict_proba(emb_vec).max()
-                            pred_label = le.inverse_transform([pred_enc])[0]
-                            st.success(f"🎯 Prédiction : {pred_label} — Confiance : {proba:.2%}")
-                        except Exception as e:
-                            st.error(f"Erreur lors de la classification : {e}")
-                            st.write("Shape embedding reçu:", emb_vec.shape)
-                    else:
-                        st.error(f"Réponse API inattendue : {api_response}")
+                if idx is None:
+                    st.warning("Impossible de retrouver l’entrée dans produits_clip.csv.")
+                else:
+                    # Utilisation de l'embedding pré-calculé
+                    emb_vec = embeddings[idx].reshape(1, -1)
+                    
+                    try:
+                        pred_enc = clf.predict(emb_vec)[0]
+                        proba = clf.predict_proba(emb_vec).max()
+                        pred_label = le.inverse_transform([pred_enc])[0]
+                        st.success(f"🎯 Prédiction : {pred_label} — Confiance : {proba:.2%}")
+                    except Exception as e:
+                        st.error(f"Erreur lors de la classification : {e}")
 
         else:
             st.warning("Image introuvable dans IMG_DIR.")

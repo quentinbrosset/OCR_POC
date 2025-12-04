@@ -341,19 +341,26 @@ with tab_eda:
 def load_clip():
     import torch
     from transformers import CLIPModel, CLIPProcessor
-
     MODEL_DIR = "models/laion-clip"
+    MODEL_NAME = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"  # Remplace par ton modèle si différent
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    model = CLIPModel.from_pretrained(
-        MODEL_DIR,
-        local_files_only=True   # ← indispensable sur Streamlit Cloud !
-    ).to(device)
+    # 1. Créer le dossier s'il n'existe pas
+    os.makedirs(MODEL_DIR, exist_ok=True)
 
-    processor = CLIPProcessor.from_pretrained(
-        MODEL_DIR,
-        local_files_only=True
-    )
+    # 2. Vérifier si le modèle est déjà téléchargé
+    if not os.path.exists(os.path.join(MODEL_DIR, "config.json")):
+        st.info("Téléchargement du modèle CLIP (une seule fois)...")
+        model = CLIPModel.from_pretrained(MODEL_NAME)
+        processor = CLIPProcessor.from_pretrained(MODEL_NAME)
+        model.save_pretrained(MODEL_DIR)
+        processor.save_pretrained(MODEL_DIR)
+    else:
+        st.info("Chargement du modèle CLIP depuis le cache local...")
+
+    # 3. Charger le modèle depuis le dossier local
+    model = CLIPModel.from_pretrained(MODEL_DIR, local_files_only=True).to(device)
+    processor = CLIPProcessor.from_pretrained(MODEL_DIR, local_files_only=True)
 
     return model, processor, device
 
